@@ -1,0 +1,10 @@
+name: fp
+channels:
+  - defaults
+dependencies:
+  - python=3.9
+  - pandas
+  - numpy
+  - boto3
+  - botocore=1.29.162
+  - moto=4.1.12

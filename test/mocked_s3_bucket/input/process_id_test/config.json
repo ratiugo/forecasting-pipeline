@@ -1,0 +1,7 @@
+{
+	"process_id": "test",
+	"dataset": {
+		"file_name": "input/process_id_test/data.csv",
+		"meta_data": {}
+	}
+}

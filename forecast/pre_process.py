@@ -2,97 +2,102 @@
 Pipeline to process the input dataset and configuration files, preparing for the actual forecasting 
 pipeline.
 """
-from forecast.utils import S3Utility
+from __future__ import annotations
+import io
 from os import environ
-from typing import Union
+from abc import ABC
+import json
+from typing import Union, Any
 import pandas as pd
+import boto3
 
-BUCKET = environ.get("FORECAST_S3_BUCKET")
-
-class PreProcess(S3Utility):
-	"""
-	Process the CSV dataset into the shape required by the forecasting lambda
-	"""
-	def __init__(self, **kwargs):
-		self.config = self.get_s3_object(bucket=bucket, key=kwargs.get("config_file"))
-		self.dataset = None
+BUCKET = environ.get("FORECAST_S3_BUCKET", "fake-bucket")
+s3 = boto3.client("s3")
 
 
-	def run(self) -> PreProcess:
-		"""
-		Run the pipeline
-		"""
-		(
-			self.load_dataset()
-				.create_model_dataset()
-		)
+class PreProcess(ABC):
+    """
+    Process the CSV dataset into the shape required by the forecasting lambda
+    """
 
-		return self
+    def __init__(self, **kwargs):
+        print(kwargs)
+        self.config = self.get_s3_object(bucket=BUCKET, key=kwargs.get("config_file"), _type = "json")
+        self.dataset = None
 
-	def load_dataset(self) -> PreProcess:
-		"""
-		Read the S3 location of the CSV dataset and load it as a pandas dataframe
-		"""
-		self.dataset = {
-			"meta_data": self.config["Dataset"]["meta_data"]
-			"data": pd.read_csv(self.config["Dataset"]["file_name"])
-		} 
+    @staticmethod
+    def put_s3_object(bucket: str, key: str, _object: Any) -> None:
+        """
+        Put an object in the specified S3 bucket
+        """
+        s3.put_object(Bucket=bucket, Key=key, Body=json.dumps(_object))
 
-		return self
+    @staticmethod
+    def get_s3_object(bucket: str, key: str, _type: str) -> Any:
+        """
+        Get an object from the specified S3 bucket
+        """
+        data = s3.get_object(Bucket=bucket, Key=key)["Body"].read().decode("utf-8")
+        if _type == "csv":
+            output = pd.read_csv(io.StringIO(data))
+        if _type == "json":
+            output = json.loads(data)
 
-	def create_model_dataset(self) -> PreProcess:
-		"""
-		Create individual model datasets
-		"""
-		model_dataset = {"config": self.config["Config"]}
-		model_dataset.update(self.dataset)
+        return output
 
-		if "group_models_by" in model_dataset["meta_data"].keys():
-			model_dataset["model_group"] = {}
-			model_dataset = [self.split_model_dataset(model_dataset)]
+    def run(self) -> PreProcess:  # pylint: disable=undefined-variable
+        """
+        Run the pipeline
+        """
+        (self.load_dataset().create_model_dataset())
 
-	@staticmethod
-	def slice_dataset(model: dict, groups: np.ndarray, column: str) -> dict:
-		"""
-		Split a dataset into individual dataframes 
-		"""
-		data = model["data"]
-		return {group: data.loc[data[column] == group, data.columns != column] for group in groups}
+        return self
 
-	def split_model_dataset(self, model: dict) -> Union[list, dict]:
-		"""
+    def load_dataset(self) -> PreProcess:  # pylint: disable=undefined-variable
+        """
+        Read the S3 location of the CSV dataset and load it as a pandas dataframe
+        """
+        self.dataset = {
+            "meta_data": self.config["dataset"]["meta_data"],
+            "data": self.get_s3_object(bucket=BUCKET, key=self.config["dataset"]["file_name"], _type="csv")
+        }
+        print(self.dataset)
+        return self
 
-		"""
-		columns = model["meta_data"]["group_models_by"].copy()
-		if columns:
-			group_by_col = columns.pop()
-			groups = model["data"][group_by_col].unique()
+    def create_model_dataset(self) -> PreProcess:  # pylint: disable=undefined-variable
+        """
+        Create individual model datasets
+        """
+        model_dataset = {"config": self.config["config"]}
+        model_dataset.update(self.dataset)
 
-			grouped_data = self.slice_dataset(model, groups, group_by_col)
+        if "group_models_by" in model_dataset["meta_data"].keys():
+            model_dataset["model_group"] = {}
+            model_dataset = [self.split_model_dataset(model_dataset)]
 
-			models = []
-			for group in groups:
-				model_group = model["model_group"].copy()
-				model_group[group_by_col] = group
-				model_tmp = {
-					"config": model["config"],
-					"model_group": model_group,
-					"meta_data": model["meta_data"],
-					"data": grouped_data[group]
-				}
-				models.append(model_tmp)
+    def split_model_dataset(self, model: dict) -> Union[list, dict]:
+        """
+        Split data into grouped models
+        """
+        columns = model["meta_data"].get("group_models_by", [])
+        grouped_data = model["data"].groupby(columns)
 
-			return_model = [self.split_model_dataset(mod) for mod in models]
-		else:
-			return model = model
+        models = []
+        for group, data in grouped_data:
+            model_tmp = {
+                "config": model["config"],
+                "model_group": dict(zip(columns, group)),
+                "meta_data": model["meta_data"],
+                "data": data,
+            }
+            models.append(model_tmp)
 
-		return return_model
+        return models
 
 
-
+# pylint: disable=unused-argument
 def pre_process_handler(event: Any, context: Any) -> str:
-	"""
-	Lambda handler to run the preprocess pipeline
-	"""
-	return PreProcess(config_file=event.get("config_file")).run()
-
+    """
+    Lambda handler to run the preprocess pipeline
+    """
+    return PreProcess(config_file=event.get("config_file")).run()
