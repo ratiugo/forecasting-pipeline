@@ -49,7 +49,7 @@ class PreProcess(ABC):
         """
         Run the pipeline
         """
-        (self.load_dataset().create_model_dataset())
+        (self.load_dataset().group_data_into_models())
 
         return self
 
@@ -64,7 +64,7 @@ class PreProcess(ABC):
         print(self.dataset)
         return self
 
-    def create_model_dataset(self) -> PreProcess:  # pylint: disable=undefined-variable
+    def group_data_into_models(self) -> PreProcess:  # pylint: disable=undefined-variable
         """
         Create individual model datasets
         """
@@ -73,13 +73,16 @@ class PreProcess(ABC):
 
         if "group_models_by" in model_dataset["meta_data"].keys():
             model_dataset["model_group"] = {}
-            model_dataset = [self.split_model_dataset(model_dataset)]
+            model_dataset = [self.segment_data_for_individual_models(model_dataset)]
 
-    def split_model_dataset(self, model: dict) -> Union[list, dict]:
+    def segment_data_for_individual_models(self, model: dict) -> Union[list, dict]:
         """
         Split data into grouped models
         """
         columns = model["meta_data"].get("group_models_by", [])
+        if isinstance(columns, str):
+            columns = [columns]
+
         grouped_data = model["data"].groupby(columns)
 
         models = []

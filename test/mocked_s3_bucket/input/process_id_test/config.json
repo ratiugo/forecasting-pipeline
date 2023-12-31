@@ -2,6 +2,17 @@
 	"process_id": "test",
 	"dataset": {
 		"file_name": "input/process_id_test/data.csv",
-		"meta_data": {}
-	}
+		"meta_data": {
+			"date_col": "month",
+			"forecast_col": "sales",
+			"date_freq": "MS",
+			"date_format": "%Y-%m-%d",
+			"group_models_by": [
+				"brand",
+				"item"
+			]
+		}
+	},
+	"train_models_to": "2023-08-01",
+	"pred_n": 3
 }
